@@ -1,0 +1,122 @@
+#!/bin/bash
+
+#--------------------------------------------
+# 功能：替换ipa包中的server.cer,build+1
+# 使用说明：
+#	replace-cer-build <ipa directory> <cer directory>
+#--------------------------------------------
+
+
+#工程绝对路径
+if [ ! "$1" ]; then
+	project_path=$(cd `dirname $0`; pwd)
+	ipa_path=$(echo ${project_path}/*.ipa)
+else 
+	ipa_path=$1
+	if [ ${ipa_path##*.} != ipa ]; then
+		echo "------ Error! $ipa_path must be an ipa directory!"
+		exit 2
+	elif [ ! -f "$ipa_path" ]; then
+		echo "------ Error! $ipa_path not exist!"
+		exit 2
+	fi
+	project_path=$(dirname "$ipa_path")
+fi
+
+#证书路径
+if [ ! "$2" ]; then
+	cer_path=$(echo ${project_path}/*.cer)
+else
+	cer_path=$2
+	if [ ${cer_path##*.} != cer ]; then
+		echo "------ Error! $cer_path must be a cer directory!"
+		exit 2
+	elif [ ! -f "$cer_path" ]; then
+		echo "------ Error! $cer_path not exist!"
+		exit 2
+	fi
+fi
+
+#文件是否存在
+if [ ! -f "$ipa_path" ]; then
+	echo "------ Error! Ipa not exist in $project_path!"
+	exit 2
+elif [ ${ipa_path##*.} != ipa ]; then
+	echo "------ Error! $ipa_path must be an ipa directory!"
+	exit 2
+fi
+
+if [ ! -f "$cer_path" ]; then
+	echo "------ Error! Cer not exist in $project_path!"
+	exit 2
+elif [ ${cer_path##*.} != cer ]; then
+	echo "------ Error! $cer_path must be a cer directory!"
+	exit 2
+fi
+
+echo "------ IPA: $ipa_path"
+echo "------ CER: $cer_path"
+
+cd "${project_path}"
+unzip "${ipa_path}"
+
+#替换证书
+app_path=$(echo ${project_path}/Payload/*.app)
+rm -rf "${app_path}"/server.cer
+cp "${cer_path}" "${app_path}"/server.cer
+
+#plist路径
+infoplist_path="${app_path}"/Info.plist
+#取版本号
+bundleShortVersion=$(/usr/libexec/PlistBuddy -c "print CFBundleShortVersionString" ${infoplist_path})
+#取build值
+bundleVersion=$(/usr/libexec/PlistBuddy -c "print CFBundleVersion" ${infoplist_path})
+#取displayName
+displayName=$(/usr/libexec/PlistBuddy -c "print CFBundleDisplayName" ${infoplist_path})
+#build值加1
+newbundleVersion=$(($bundleVersion+1))
+
+if [ ! -n "$newbundleVersion" ]; then
+	newbundleVersion=$(($bundleShortVersion+1))
+	if [! -n "$newbundleVersion" ]; then
+		echo ""
+		echo "------ BuildVersion ${bundleVersion} Add 1 Faild !!!!!!"
+		echo ""
+	else
+		/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $newbundleVersion" ${infoplist_path}
+		echo "$displayName CFBundleShortVersionString:$bundleShortVersion"
+		echo "      ↓↓↓↓↓↓ + 1 ↓↓↓↓↓↓"
+		echo "$displayName CFBundleShortVersionString:$newbundleVersion"
+		echo ""
+
+		customBuild=$(/usr/libexec/PlistBuddy -c "print CustomBuild" ${infoplist_path})
+		if [ -n "$customBuild" ]; then
+			/usr/libexec/PlistBuddy -c "Set :CustomBuild $newbundleVersion" ${infoplist_path}
+			echo "$displayName CustomBuild:$customBuild"
+			echo "      ↓↓↓↓↓↓ + 1 ↓↓↓↓↓↓"
+			echo "$displayName CustomBuild:$newbundleVersion"
+			echo ""
+		fi
+	fi
+else
+	/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $newbundleVersion" ${infoplist_path}
+	echo ""
+	echo "$displayName BuildVersion:$bundleVersion"
+	echo "      ↓↓↓↓↓↓ + 1 ↓↓↓↓↓↓"
+	echo "$displayName BuildVersion:$newbundleVersion"
+	echo ""
+fi
+
+
+#收尾
+ipa_name="${displayName}"_${bundleShortVersion}_${newbundleVersion}_$(date +"%Y%m%d").ipa
+zip -qr "${ipa_name}" Payload
+rm -rf "${project_path}"/Payload
+
+if [ -d "${project_path}/__MACOSX" ]; then
+	rm -rf "${project_path}"/__MACOSX
+fi
+
+echo "${project_path}/${ipa_name}"
+echo ""
+echo ""

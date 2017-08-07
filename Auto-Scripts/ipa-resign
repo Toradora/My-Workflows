@@ -1,0 +1,138 @@
+#!/bin/bash
+
+#--------------------------------------------
+# 功能：ipa 重新签名
+# 使用说明：
+#			ipa-resign <ipa directory> [-o <ipa output directory>]
+#
+# 参数说明：	-o PATH				ipa文件输出的文件夹（必须为已存在的文件路径）默认为原ipa路径下
+#--------------------------------------------
+
+echo ""
+
+DISTRIBUTION_CER="4566FC00FD31331BF4B40C6A479B5E089C7EB11A"
+RESOURCE_RULE_PATH="~/Desktop/My-Workflows/Source/ResourceRules.plist"
+
+if [ ! $1 ];then
+	project_path=$(cd `dirname $0`; pwd)
+	ipa_path=$(echo ${project_path}/*.ipa)
+else 
+	ipa_path=$1
+	if [ ! -f "$ipa_path" ]; then
+		echo "------ Error! $ipa_path not exist!"
+		exit 2
+	elif [ ${ipa_path##*.} != ipa ]; then
+		echo "------ Error! $ipa_path must be an ipa directory!"
+		exit 2
+	fi
+	project_path=$(dirname "$ipa_path")
+fi
+
+#文件是否存在
+if [ ! -f "$ipa_path" ]; then
+	echo "------ Error! Ipa not exist in $project_path!"
+	exit 2
+elif [ ${ipa_path##*.} != ipa ]; then
+	echo "------ Error! $ipa_path must be an ipa directory!"
+	exit 2
+fi
+
+#plist文件名
+plistname='entitlements.plist'
+#输出文件名
+ipa_name=resigned_$(basename "${ipa_path}")
+
+param_pattern="o:"
+OPTIND=2
+while getopts $param_pattern optname
+  do
+    case "$optname" in       
+	  
+      "o")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind
+
+		if [ -d $tmp_optarg ];then
+			cd $tmp_optarg
+			output_path=$(pwd)
+			cd ${1%/*}
+		else
+			if [ "${tmp_optarg##*.}" == "ipa" ]; then
+				output_path=$(dirname "${tmp_optarg}")
+				ipa_name=$(basename "${tmp_optarg}")
+				cd ${1%/*}
+			else
+				echo "Error!The value of option o must be an exist directory or a ipa."
+				exit 2
+			fi
+		fi
+
+        ;;
+	  "?")
+        echo "Error! Unknown option $OPTARG"
+		exit 2
+        ;;
+      ":")
+        echo "Error! No argument value for option $OPTARG"
+		exit 2
+        ;;
+      *)
+      # Should not occur
+        echo "Error! Unknown error while processing options"
+		exit 2
+        ;;
+    esac
+  done
+
+#解压ipa
+cd "${project_path}"
+unzip "${ipa_path}"
+
+while IFS= read -r -d $'\0' dir; do
+	#app路径
+	app_path=$dir
+	#配置文件路径
+	embedded_path="${app_path}"/embedded.mobileprovision
+	#删除签名信息
+	if [ -d "${app_path}/_CodeSignature" ]; then
+		rm -rf "${app_path}/_CodeSignature"
+	fi
+
+	#输出plist文件
+	/usr/libexec/PlistBuddy -x -c "print :Entitlements " /dev/stdin <<< $(security cms -D -i ${embedded_path}) > "${project_path}/${plistname}"
+	cat "${project_path}/${plistname}"
+
+	#重签名
+	codesign -fs "${DISTRIBUTION_CER}" --resource-rules="${RESOURCE_RULE_PATH}" --entitlements="${project_path}/${plistname}" "${dir}"
+done < <(find "${project_path}/Payload" -type d -iname "*.*" -maxdepth 1 -print0)
+
+#收尾
+zip -qr "${ipa_name}" Payload
+rm -rf "${project_path}"/Payload
+rm -rf "${project_path}/${plistname}"
+if [ -d "${project_path}/__MACOSX" ]; then
+	rm -rf "${project_path}"/__MACOSX
+fi
+
+if [ -d "$output_path" ];then
+	
+	cd "${output_path}"
+	if [ "$(pwd "${output_path}")" == "${project_path}" ]; then
+		exit 2
+	fi
+
+	cp "${project_path}/${ipa_name}" $output_path/"${ipa_name}"
+	rm -rf "${project_path}/${ipa_name}"
+	echo ""
+	echo "Copy ipa file successfully to the path $output_path/${ipa_name}"
+fi
+
+echo ""

@@ -1,0 +1,28 @@
+#!/bin/bash
+
+#--------------------------------------------
+# 功能：删除目录下的 MP3、FLAC 文件夹，并将其中文件移动到上层文件夹
+# 使用说明：
+#	musicflow <directory>
+#--------------------------------------------
+
+if [ ! "$1" ]; then
+	dir_path=$(cd `dirname $0`; pwd)
+else 
+	cd "$1"
+	dir_path=$(pwd)
+fi 
+
+while IFS= read -r -d $'\0' dir; do
+    cd "$dir"
+	pwd
+	mv * ../.
+	rm -rf "$dir"
+done < <(find "$dir_path" -type d -iname "MP3" -depth -print0)
+
+while IFS= read -r -d $'\0'; do
+    cd "$REPLY"
+	pwd
+	mv * ../.
+	rm -rf "$REPLY"
+done < <(find "$dir_path" -type d -iname "FLAC" -depth -print0)

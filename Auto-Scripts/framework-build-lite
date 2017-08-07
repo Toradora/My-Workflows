@@ -1,0 +1,40 @@
+#!/bin/bash
+
+#--------------------------------------------
+# 功能：编译模拟器和真机通用framework
+#--------------------------------------------
+
+UNIVERSAL_OUTPUTFOLDER=${BUILD_DIR}/${CONFIGURATION}-universal
+FRAMEWORK_TARGET=${PROJECT_NAME}
+
+
+# Take build target
+if [[ "$SDK_NAME" =~ ([A-Za-z]+) ]]
+then
+SF_SDK_PLATFORM=${BASH_REMATCH[1]}
+else
+echo "Could not find platform name from SDK_NAME: $SDK_NAME"
+exit 1
+fi
+
+if [[ "$SF_SDK_PLATFORM" = "iphoneos" ]]
+then
+echo "Please choose iPhone simulator as the build target."
+exit 1
+fi
+
+IPHONE_DEVICE_BUILD_DIR=${BUILD_DIR}/${CONFIGURATION}-iphoneos
+
+# 编译真机版本
+xcodebuild -project "${PROJECT_FILE_PATH}" -target "${TARGET_NAME}" -configuration "${CONFIGURATION}" -sdk iphoneos BUILD_DIR="${BUILD_DIR}" OBJROOT="${OBJROOT}" BUILD_ROOT="${BUILD_ROOT}" CONFIGURATION_BUILD_DIR="${IPHONE_DEVICE_BUILD_DIR}" SYMROOT="${SYMROOT}" ARCHS='arm64 armv7 armv7s' VALID_ARCHS='arm64 armv7 armv7s' $ACTION
+
+#复制到相应位置
+rm -rf "${UNIVERSAL_OUTPUTFOLDER}"
+mkdir -p "${UNIVERSAL_OUTPUTFOLDER}"
+cp -R "${BUILD_DIR}/${CONFIGURATION}-iphoneos/${FRAMEWORK_TARGET}.framework" "${UNIVERSAL_OUTPUTFOLDER}/${FRAMEWORK_TARGET}.framework"
+
+#通过lipo命令合并起来
+lipo -create  "${BUILD_DIR}/${CONFIGURATION}-iphonesimulator/${FRAMEWORK_TARGET}.framework/${FRAMEWORK_TARGET}" "${BUILD_DIR}/${CONFIGURATION}-iphoneos/${FRAMEWORK_TARGET}.framework/${FRAMEWORK_TARGET}" -output "${UNIVERSAL_OUTPUTFOLDER}/${FRAMEWORK_TARGET}.framework/${FRAMEWORK_TARGET}"
+
+#复制到工程目录
+cp -R "${UNIVERSAL_OUTPUTFOLDER}/${FRAMEWORK_TARGET}.framework" "${PROJECT_DIR}/${FRAMEWORK_TARGET}.framework"

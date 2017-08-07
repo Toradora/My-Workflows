@@ -1,0 +1,332 @@
+#!/bin/bash
+
+#--------------------------------------------
+# 功能：ipa 重新签名
+# 使用说明：
+#			ipa-resign <ipa directory> [-s <identity>] [-p <mobile provision path>] [-a BundleIdentifier] [-i <img file directory>] [-b] [-o <ipa output directory>]
+#
+# 参数说明：	-s identity				发布证书名称
+#			-p mobile_provision		描述文件路径
+#			-a app id 				新app id
+#			-i imgfile_path			图片资源路径
+#			-o output_path			ipa文件输出的文件夹（必须为已存在的文件路径）默认为原ipa路径下
+#			-b BuildVersion			BuildVersion是否增加1
+#--------------------------------------------
+
+echo ""
+
+DISTRIBUTION_CER='4566FC00FD31331BF4B40C6A479B5E089C7EB11A'
+
+if [ ! $1 ];then
+	project_path=$(cd `dirname $0`; pwd)
+	ipa_path=$(echo ${project_path}/*.ipa)
+else 
+	ipa_path=$1
+	if [ ! -f "$ipa_path" ]; then
+		echo "------ Error! $ipa_path not exist!"
+		exit 2
+	elif [ ${ipa_path##*.} != ipa ]; then
+		echo "------ Error! $ipa_path must be an ipa directory!"
+		exit 2
+	fi
+	project_path=$(dirname "$ipa_path")
+fi
+
+#文件是否存在
+if [ ! -f "$ipa_path" ]; then
+	echo "------ Error! Ipa not exist in $project_path!"
+	exit 2
+elif [ ${ipa_path##*.} != ipa ]; then
+	echo "------ Error! $ipa_path must be an ipa directory!"
+	exit 2
+fi
+
+#plist文件名
+plistname='entitlements.plist'
+#输出文件名
+ipa_name=resigned_$(basename "${ipa_path}")
+
+embedded_path=""
+param_pattern="s:p:a:i:o:b"
+OPTIND=2
+while getopts $param_pattern optname
+  do
+    case "$optname" in       
+	  "s")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind
+
+		if [ -n "$tmp_optarg" ];then
+			DISTRIBUTION_CER="${tmp_optarg}"
+		fi
+		;;
+	  "p")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind
+
+		if [ "${tmp_optarg##*.}" == "mobileprovision" ]; then
+			embedded_path="${tmp_optarg}"
+		else
+			echo "Error!The value of option p must be a mobileprovision file."
+			exit 2
+		fi
+		;;
+	  "a")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind	
+
+		if [ -n "$tmp_optarg" ];then
+			app_id="${tmp_optarg}"
+		fi
+		;;
+	  "i")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind
+
+		if [ -d "$tmp_optarg" ]; then
+			imgfile_path="${tmp_optarg}"
+		else
+			echo "Error!The value of option i must be an exist directory."
+			exit 2
+		fi
+		;;
+      "o")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind
+
+		if [ -d "$tmp_optarg" ];then
+			cd "$tmp_optarg"
+			output_path=$(pwd)
+			cd ${1%/*}
+		else
+			if [ "${tmp_optarg##*.}" == "ipa" ]; then
+				output_path=$(dirname "${tmp_optarg}")
+				ipa_name=$(basename "${tmp_optarg}")
+				cd ${1%/*}
+			else
+				echo "Error!The value of option o must be an exist directory or a ipa."
+				exit 2
+			fi
+		fi
+
+        ;;
+      "b")
+		num=1
+		;;
+	  "?")
+        echo "Error! Unknown option $OPTARG"
+		exit 2
+        ;;
+      ":")
+        echo "Error! No argument value for option $OPTARG"
+		exit 2
+        ;;
+      *)
+      # Should not occur
+        echo "Error! Unknown error while processing options"
+		exit 2
+        ;;
+    esac
+  done
+
+#解压ipa
+cd "${project_path}"
+unzip "${ipa_path}"
+
+#忽略文件路径
+RESOURCE_RULE_PATH="${project_path}/ResourceRules.plist"
+cat << EOF > ${RESOURCE_RULE_PATH}
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>rules</key>
+	<dict>
+		<key>.*</key>
+		<true/>
+		<key>Info.plist</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<integer>10</integer>
+		</dict>
+		<key>ResourceRules.plist</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<real>100</real>
+		</dict>
+		<key>server.cer</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<integer>100</integer>
+		</dict>
+		<key>.png</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<integer>100</integer>
+		</dict>
+		<key>Localizable.plist</key>
+		<dict>
+			<key>omit</key>
+			<true/>
+			<key>weight</key>
+			<integer>100</integer>
+		</dict>
+	</dict>
+</dict>
+</plist>
+EOF
+
+while IFS= read -r -d $'\0' dir; do
+#app路径
+# app_path=$(echo ${project_path}/Payload/*.app)
+app_path=$dir
+#删除签名信息
+rm -rf "${app_path}/_CodeSignature"
+#替换配置文件
+if [ "${embedded_path}" == "" ]; then
+	embedded_path="${app_path}"/embedded.mobileprovision
+else
+	cp ${embedded_path} "${app_path}"/embedded.mobileprovision
+fi
+
+#输出plist文件
+/usr/libexec/PlistBuddy -x -c "print :Entitlements " /dev/stdin <<< $(security cms -D -i ${embedded_path}) > "${project_path}/${plistname}"
+cat "${project_path}/${plistname}"
+
+#Info.plist路径
+infoplist_path="${app_path}"/Info.plist
+#取版本号
+bundleShortVersion=$(/usr/libexec/PlistBuddy -c "print CFBundleShortVersionString" ${infoplist_path})
+#取build值
+bundleVersion=$(/usr/libexec/PlistBuddy -c "print CFBundleVersion" ${infoplist_path})
+#取displayName
+displayName=$(/usr/libexec/PlistBuddy -c "print CFBundleDisplayName" ${infoplist_path})
+
+if [ $num ]; then
+	if [[ $bundleVersion =~ "." ]]; then
+		if [[ "$bundleShortVersion" =~ "." ]]; then
+			echo ""
+			echo "------ BuildVersion ${bundleVersion} Add 1 Faild !!!!!!"
+			echo ""
+		else
+			newbundleVersion=$(($bundleShortVersion+1))
+			/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $newbundleVersion" ${infoplist_path}
+			echo "$displayName CFBundleShortVersionString:$bundleShortVersion"
+			echo "      ↓↓↓↓↓↓ + 1 ↓↓↓↓↓↓"
+			echo "$displayName CFBundleShortVersionString:$newbundleVersion"
+			echo ""
+
+			customBuild=$(/usr/libexec/PlistBuddy -c "print CustomBuild" ${infoplist_path})
+			if [ -n "$customBuild" ]; then
+				/usr/libexec/PlistBuddy -c "Set :CustomBuild $newbundleVersion" ${infoplist_path}
+				echo "$displayName CustomBuild:$customBuild"
+				echo "      ↓↓↓↓↓↓ + 1 ↓↓↓↓↓↓"
+				echo "$displayName CustomBuild:$newbundleVersion"
+				echo ""
+			fi
+		fi
+	else
+		#build值加1
+		newbundleVersion=$(($bundleVersion+1))
+		/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $newbundleVersion" ${infoplist_path}
+		echo ""
+		echo "$displayName BuildVersion:$bundleVersion"
+		echo "      ↓↓↓↓↓↓ + 1 ↓↓↓↓↓↓"
+		echo "$displayName BuildVersion:$newbundleVersion"
+		echo ""
+		ipa_name=${ipa_name//$bundleVersion/$newbundleVersion}
+	fi
+fi
+
+#修改app id
+if [ -n "${app_id}" ]; then
+	/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier '${app_id}'" ${infoplist_path}
+fi
+
+#定制区域
+# - 替换图片资源
+if [ -d "$imgfile_path" ];then
+	while IFS= read -r -d $'\0' dir; do
+		imgname=$(basename $dir)
+		imgpath=$dir
+		while IFS= read -r -d $'\0' dir; do
+			cp $imgpath $dir
+		done < <(find $app_path -type f -iname $imgname -depth -print0)
+	done < <(find "$imgfile_path" -type f -iname "*.png" -depth -print0)
+fi
+
+#重签名
+codesign -fs "${DISTRIBUTION_CER}" --resource-rules="${RESOURCE_RULE_PATH}" --entitlements="${project_path}/${plistname}" "${app_path}"
+done < <(find "${project_path}/Payload" -type d -iname "*.*" -maxdepth 1 -print0)
+
+#收尾
+zip -qr "${ipa_name}" Payload
+rm -rf "${project_path}"/Payload
+rm -rf "${project_path}/${plistname}"
+rm -rf "${RESOURCE_RULE_PATH}"
+if [ -d "${project_path}/__MACOSX" ]; then
+	rm -rf "${project_path}"/__MACOSX
+fi
+
+if [ -d "$output_path" ];then
+	
+	cd "${output_path}"
+	if [ "$(pwd "${output_path}")" == "${project_path}" ]; then
+		exit 2
+	fi
+
+	cp "${project_path}/${ipa_name}" "$output_path"/"${ipa_name}"
+	rm -rf "${project_path}/${ipa_name}"
+	echo ""
+	echo "Copy ipa file successfully to the path $output_path/${ipa_name}"
+fi
+
+echo ""

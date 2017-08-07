@@ -1,0 +1,118 @@
+#!/bin/bash
+
+#--------------------------------------------
+# 功能：从app中生成entitlements.plist文件
+# 使用说明：
+#			plist-build <app directory> [-o <ipa output directory>]
+#
+# 参数说明：	-o PATH				生成的plist文件输出的文件夹（必须为已存在的文件路径）默认为app路径下
+#--------------------------------------------
+
+if [ ! -d $1 ];then
+	echo "Error! The first param must be a directory."
+	exit 2
+fi
+
+if [ ! "$1" ];then
+	project_path=$(cd `dirname $0`; pwd)
+	app_path=$(echo ${project_path}/*.app)
+else 
+	app_path=$1
+	if [ ${app_path##*.} != app ]; then
+		echo "------ Error! $app_path must be an app directory!"
+		exit 2
+	elif [ ! -d "$app_path" ]; then
+		echo "------ Error! $app_path not exist!"
+		exit 2
+	fi
+	project_path=$(dirname "$app_path")
+fi
+
+#文件是否存在
+if [ ! -d "$app_path" ]; then
+	echo "------ Error! App not exist in $project_path!"
+	exit 2
+elif [ ${app_path##*.} != app ]; then
+	echo "------ Error! $app_path must be an app directory!"
+	exit 2
+fi
+
+#配置文件路径
+embedded_path="${app_path}"/embedded.mobileprovision
+#输出路径
+output_path=$project_path
+#输出文件名
+plistname='entitlements.plist'
+
+param_pattern=":p:nc:o:t:ws:"
+OPTIND=2
+while getopts $param_pattern optname
+  do
+    case "$optname" in       
+	  
+      "o")
+		tmp_optind=$OPTIND
+		tmp_optname=$optname
+		tmp_optarg=$OPTARG
+
+		OPTIND=$OPTIND-1
+		if getopts $param_pattern optname ;then
+			echo  "Error argument value for option $tmp_optname"
+			exit 2
+		fi
+		OPTIND=$tmp_optind
+
+		if [ -d $tmp_optarg ];then
+			cd $tmp_optarg
+			output_path=$(pwd)
+			cd ${1%/*}
+		else
+			if [ "${tmp_optarg##*.}" == "plist" ]; then
+				output_path=$(dirname "${tmp_optarg}")
+				plistname=$(basename "${tmp_optarg}")
+				cd ${1%/*}
+			else
+				echo "Error!The value of option o must be an exist directory or a plist."
+				exit 2
+			fi
+		fi
+
+        ;;
+	  "?")
+        echo "Error! Unknown option $OPTARG"
+		exit 2
+        ;;
+      ":")
+        echo "Error! No argument value for option $OPTARG"
+		exit 2
+        ;;
+      *)
+      # Should not occur
+        echo "Error! Unknown error while processing options"
+		exit 2
+        ;;
+    esac
+  done
+
+#获取配置文件中的Entitlements信息
+# temp1=$(security cms -Di ${embedded_path})
+# temp2=${temp1#*Entitlements</key>}
+# entitlementsInfo=${temp2%<key>ExpirationDate*}
+
+#输出plist文件
+# cat << EOF > $output_path/"${plistname}"
+# <?xml version="1.0" encoding="UTF-8"?>
+# <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+# <plist version="1.0">
+# $entitlementsInfo
+# </plist>
+# EOF
+
+#输出plist文件
+/usr/libexec/PlistBuddy -x -c "print :Entitlements " /dev/stdin <<< $(security cms -D -i ${embedded_path}) > $output_path/${plistname}
+
+cat $output_path/"${plistname}"
+echo "Create plist successfully to the path $output_path/${plistname}"
+
+
+
